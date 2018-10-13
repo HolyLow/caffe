@@ -50,6 +50,7 @@ class Layer {
       }
     }
   virtual ~Layer() {}
+  virtual void PreProcess() {}
 
   /**
    * @brief Implements common layer setup functionality.
