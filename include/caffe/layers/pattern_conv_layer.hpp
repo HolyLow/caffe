@@ -84,10 +84,14 @@ class PatternConvLayer : public BaseConvolutionLayer<Dtype> {
 
   void CyclicPrune();
 
-  int mod;
-  int policy;
-  int begin_sp;
-  int end_sp;
+  Blob<int> masks_;
+  int mod_;
+  int policy_;
+  float begin_sp_;
+  float end_sp_;
+  float current_sp_;
+  int iter_;
+  int iter_pulse_;
 };
 
 }  // namespace caffe
