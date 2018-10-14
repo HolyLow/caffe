@@ -16,6 +16,7 @@ void PatternConvLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   iter_pulse_ = this->layer_param_.convolution_param().iter_pulse();
   policy_ = 0;
   current_sp_ = 0;
+  iter_ = 0;
   int count = this->blobs_[0]->count();
   vector<int> mask_shape(1, count);
   this->masks_.Reshape(mask_shape);
@@ -158,10 +159,10 @@ void PatternConvLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
           this->backward_cpu_gemm(top_diff + n * this->top_dim_, weight,
               bottom_diff + n * this->bottom_dim_);
         }
-        this->CyclicPrune();
       }
     }
   }
+  this->CyclicPrune();
   ++iter_;
 }
 
@@ -170,5 +171,5 @@ STUB_GPU(PatternConvLayer);
 #endif
 
 INSTANTIATE_CLASS(PatternConvLayer);
-
+REGISTER_LAYER_CLASS(PatternConv);
 }  // namespace caffe

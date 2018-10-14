@@ -64,10 +64,11 @@ void PatternConvLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
           this->backward_gpu_gemm(top_diff + n * this->top_dim_, weight,
               bottom_diff + n * this->bottom_dim_);
         }
-        this->CyclicPrune();
       }
     }
   }
+  this->CyclicPrune();
+  ++iter_;
 }
 
 INSTANTIATE_LAYER_GPU_FUNCS(PatternConvLayer);

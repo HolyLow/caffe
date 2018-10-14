@@ -96,4 +96,4 @@ class PatternConvLayer : public BaseConvolutionLayer<Dtype> {
 
 }  // namespace caffe
 
-#endif  // CAFFE_CONV_LAYER_HPP_
+#endif  // CAFFE_PATTERNCONV_LAYER_HPP_
