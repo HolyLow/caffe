@@ -82,6 +82,7 @@ class PatternConvLayer : public BaseConvolutionLayer<Dtype> {
   virtual inline bool reverse_dimensions() { return false; }
   virtual void compute_output_shape();
 
+  void ActualSparsityCheck();
   void CyclicPrune();
 
   Blob<int> masks_;

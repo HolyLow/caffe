@@ -34,10 +34,38 @@ void PatternConvLayer<Dtype>::PreProcess() {
 }
 
 template <typename Dtype>
+void PatternConvLayer<Dtype>::ActualSparsityCheck() {
+  int count = this->blobs_[0]->count();
+  const Dtype* weight = this->blobs_[0]->cpu_data();
+  const Dtype* weight_diff = this->blobs_[0]->cpu_diff();
+  const int* mask = this->masks_.cpu_data();
+  int weight_nnz = 0, weight_diff_nnz = 0, mask_nnz = 0;
+  for (int i = 0; i < count; ++i) {
+    if (weight[i] != 0.) {
+      ++weight_nnz;
+    }
+    if (weight_diff[i] != 0.) {
+      ++weight_diff_nnz;
+    }
+    if (mask[i] != 0) {
+      ++mask_nnz;
+    }
+  }
+  LOG(INFO) << "Actual Sparsity Check: " << std::endl
+      << "weight: " << count - weight_nnz << " / " << count << " = "
+      << (float)(count - weight_nnz) / count << std::endl
+      << "weight_diff: " << count - weight_diff_nnz << " / " << count << " = "
+      << (float)(count - weight_diff_nnz) / count << std::endl
+      << "mask: " << count - mask_nnz << " / " << count << " = "
+      << (float)(count - mask_nnz) / count << std::endl;
+}
+
+template <typename Dtype>
 void PatternConvLayer<Dtype>::CyclicPrune() {
   if (current_sp_ < end_sp_) {
     if (policy_ == 0) {
       if (iter_ % iter_pulse_ == 0) {
+        ActualSparsityCheck();
         float last_sp = current_sp_;
         if (current_sp_ == 0) {
           current_sp_ = begin_sp_;
@@ -54,7 +82,7 @@ void PatternConvLayer<Dtype>::CyclicPrune() {
         else {
           current_sp_ += 10;
         }
-        LOG(INFO) << "PatternConv Pruning(cyclic), sparsity from "
+        LOG(INFO) << "PatternConv Pruning(cyclic), required sparsity from "
                   << last_sp << "% to " << current_sp_ << "%" << std::endl;
         // vector<Dtype> weight_row_bag;
         int row_num = this->blobs_[0]->count() / this->blobs_[0]->count(1);
@@ -64,6 +92,7 @@ void PatternConvLayer<Dtype>::CyclicPrune() {
         for (int i = 0; i < row_num; ++i) {
           Dtype* weight_row = this->blobs_[0]->mutable_cpu_data() + i * row_size;
           int* mask_weight_row = this->masks_.mutable_cpu_data() + i * row_size;
+          Dtype* weight_diff_row = this->blobs_[0]->mutable_cpu_diff() + i * row_size;
           for (int j = 0; j < mod_; ++j) {
             int cnt = 0;
             for (int col = j; col < row_size; col += mod_, ++cnt) {
@@ -74,17 +103,41 @@ void PatternConvLayer<Dtype>::CyclicPrune() {
             // set mask_val to 0 to mask it out
             for (int col = j; col < row_size; col += mod_) {
               mask_weight_row[col] = (fabs(weight_row[col]) <= threshold) ? 0 : 1;
-              weight_row[col] = (fabs(weight_row[col]) <= threshold) ? 0. : weight_row[col];
+              weight_diff_row[col] = (fabs(weight_row[col]) <= threshold) ? 0. : weight_diff_row[col];
               global_cnt += (fabs(weight_row[col]) <= threshold);
+              weight_row[col] = (fabs(weight_row[col]) <= threshold) ? 0. : weight_row[col];
             }
             LOG(INFO) << "row " << i << " mod " << j
-                      << " threshold: " << threshold <<std::endl;
+                      << " threshold: " << threshold << std::endl;
           }
         }
-        float actual_sp = (float)global_cnt / this->blobs_[0]->count();
-        LOG(INFO) << "required sparsity: " << current_sp_ << "%, actual sparsity: "
-                  << global_cnt << " / " << this->blobs_[0]->count() << " = "
-                  << actual_sp << "%" << std::endl;
+        // int count = this->blobs_[0]->count();
+        // Dtype* weight_diff = this->blobs_[0]->mutable_cpu_diff();
+        // for (int j = 0; j < count; ++j) {
+        //   weight_diff[j] = this->masks_.cpu_data()[j] == 0 ? 0. : weight_diff[j];
+        // }
+        float counted_sp = (float)global_cnt / this->blobs_[0]->count() * 100;
+        // int actual_sp_cnt = 0;
+        // const Dtype* weight = this->blobs_[0]->cpu_data();
+        // for (int i = 0; i < count; ++i) {
+        //   if (weight[i] == 0.) {
+        //     ++actual_sp_cnt;
+        //   }
+        // }
+        // float actual_sp = (float)actual_sp_cnt / this->blobs_[0]->count() * 100;
+        LOG(INFO) << "required sparsity: " << current_sp_
+            << "%, counted sparsity: " << global_cnt << " / "
+            << this->blobs_[0]->count() << " = " << counted_sp
+            // << "%, actual sparsity: " << actual_sp_cnt << " / "
+            // << this->blobs_[0]->count() << " = " << actual_sp << "%"
+            << std::endl;
+        delete [] weight_row_bag;
+        ActualSparsityCheck();
+      #ifndef CPU_ONLY
+        this->blobs_[0]->gpu_data();
+        this->blobs_[0]->gpu_diff();
+        this->masks_.gpu_data();
+      #endif
       }
     }
   }
@@ -149,16 +202,16 @@ void PatternConvLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
           this->weight_cpu_gemm(bottom_data + n * this->bottom_dim_,
               top_diff + n * this->top_dim_, weight_diff);
         }
-        // mask out the gradients
-        int count = this->blobs_[0]->count();
-        for (int j = 0; j < count; ++j) {
-          weight_diff[j] = this->masks_.cpu_data()[j] == 0 ? 0. : weight_diff[j];
-        }
         // gradient w.r.t. bottom data, if necessary.
         if (propagate_down[i]) {
           this->backward_cpu_gemm(top_diff + n * this->top_dim_, weight,
               bottom_diff + n * this->bottom_dim_);
         }
+      }
+      // mask out the gradients
+      int count = this->blobs_[0]->count();
+      for (int j = 0; j < count; ++j) {
+        weight_diff[j] = this->masks_.cpu_data()[j] == 0 ? 0. : weight_diff[j];
       }
     }
   }

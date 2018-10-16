@@ -54,17 +54,20 @@ void PatternConvLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
           this->weight_gpu_gemm(bottom_data + n * this->bottom_dim_,
               top_diff + n * this->top_dim_, weight_diff);
         }
-        // mask out the gradients
-        int count = this->blobs_[0]->count();
-        mask_weight<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>
-              (count, this->blobs_[0]->gpu_diff(), this->masks_.gpu_data(),
-               this->blobs_[0]->mutable_gpu_diff());
         // gradient w.r.t. bottom data, if necessary.
         if (propagate_down[i]) {
           this->backward_gpu_gemm(top_diff + n * this->top_dim_, weight,
               bottom_diff + n * this->bottom_dim_);
         }
       }
+      // mask out the gradients
+      int count = this->blobs_[0]->count();
+      mask_weight<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>
+      (count, this->blobs_[0]->gpu_diff(), this->masks_.gpu_data(),
+      this->blobs_[0]->mutable_gpu_diff());
+      mask_weight<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>(
+        count, this->blobs_[0]->gpu_data(), this->masks_.gpu_data(),
+        this->blobs_[0]->mutable_gpu_data());
     }
   }
   this->CyclicPrune();
