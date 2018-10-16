@@ -225,6 +225,14 @@ void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
   // Compute the update to history, then copy it to the parameter diff.
   switch (Caffe::mode()) {
   case Caffe::CPU: {
+    if (net_params[param_id]->masked()) {
+      int param_size = net_params[param_id]->count();
+      Dtype* history_data = history_[param_id]->mutable_cpu_data();
+      const Mtype* mask = net_params[param_id]->cpu_mask();
+      for (int cnt = 0; cnt < param_size; ++cnt) {
+        history_data[cnt] = history_data[cnt] * mask[cnt];
+      }
+    }
     caffe_cpu_axpby(net_params[param_id]->count(), local_rate,
               net_params[param_id]->cpu_diff(), momentum,
               history_[param_id]->mutable_cpu_data());
@@ -235,6 +243,14 @@ void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
   }
   case Caffe::GPU: {
 #ifndef CPU_ONLY
+    if (net_params[param_id]->masked()) {
+      int param_size = net_params[param_id]->count();
+      Dtype* history_data = history_[param_id]->mutable_gpu_data();
+      const Mtype* mask = net_params[param_id]->gpu_mask();
+      caffe_gpu_mask(param_size, mask, history_data);
+      // gpu_mask<Dtype><<<CAFFE_GET_BLOCKS(param_size), CAFFE_CUDA_NUM_THREADS>>>(
+        // param_size, history_data, mask, history_data);
+    }
     sgd_update_gpu(net_params[param_id]->count(),
         net_params[param_id]->mutable_gpu_diff(),
         history_[param_id]->mutable_gpu_data(),

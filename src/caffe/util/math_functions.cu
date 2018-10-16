@@ -456,4 +456,23 @@ void caffe_gpu_rng_gaussian(const int n, const double mu, const double sigma,
       curandGenerateNormalDouble(Caffe::curand_generator(), r, n, mu, sigma));
 }
 
+template <typename Dtype>
+__global__ void gpu_mask(int n, const Dtype* weight,
+    const Mtype* mask, Dtype* out) {
+
+  CUDA_KERNEL_LOOP(index, n) {
+    out[index] = weight[index] * mask[index];
+  }
+}
+
+template <typename Dtype>
+void caffe_gpu_mask(const int N, const Mtype* mask, Dtype* Y) {
+  gpu_mask<Dtype><<<CAFFE_GET_BLOCKS(N), CAFFE_CUDA_NUM_THREADS>>>(
+        N, Y, mask, Y);
+}
+
+template void caffe_gpu_mask<int>(const int N, const Mtype* mask, int* Y);
+template void caffe_gpu_mask<float>(const int N, const Mtype* mask, float* Y);
+template void caffe_gpu_mask<double>(const int N, const Mtype* mask, double* Y);
+
 }  // namespace caffe

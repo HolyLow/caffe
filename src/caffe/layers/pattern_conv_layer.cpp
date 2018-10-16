@@ -17,10 +17,11 @@ void PatternConvLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   policy_ = 0;
   current_sp_ = 0;
   iter_ = 0;
-  int count = this->blobs_[0]->count();
-  vector<int> mask_shape(1, count);
-  this->masks_.Reshape(mask_shape);
-  caffe_set(count, 1, this->masks_.mutable_cpu_data());
+  // int count = this->blobs_[0]->count();
+  // vector<int> mask_shape(1, count);
+  // this->masks_.Reshape(mask_shape);
+  // caffe_set(count, 1, this->masks_.mutable_cpu_data());
+  this->blobs_[0]->MaskUp();
   LOG(INFO) << "mod = " << mod_ << std::endl
             << "policy = " << policy_ << std::endl
             << "begin_sp = " << begin_sp_ << std::endl
@@ -38,7 +39,7 @@ void PatternConvLayer<Dtype>::ActualSparsityCheck() {
   int count = this->blobs_[0]->count();
   const Dtype* weight = this->blobs_[0]->cpu_data();
   const Dtype* weight_diff = this->blobs_[0]->cpu_diff();
-  const int* mask = this->masks_.cpu_data();
+  const Mtype* mask = this->blobs_[0]->cpu_mask();
   int weight_nnz = 0, weight_diff_nnz = 0, mask_nnz = 0;
   for (int i = 0; i < count; ++i) {
     if (weight[i] != 0.) {
@@ -91,7 +92,8 @@ void PatternConvLayer<Dtype>::CyclicPrune() {
         int global_cnt = 0;
         for (int i = 0; i < row_num; ++i) {
           Dtype* weight_row = this->blobs_[0]->mutable_cpu_data() + i * row_size;
-          int* mask_weight_row = this->masks_.mutable_cpu_data() + i * row_size;
+          // int* mask_weight_row = this->masks_.mutable_cpu_data() + i * row_size;
+          int* mask_weight_row = this->blobs_[0]->mutable_cpu_mask() + i * row_size;
           Dtype* weight_diff_row = this->blobs_[0]->mutable_cpu_diff() + i * row_size;
           for (int j = 0; j < mod_; ++j) {
             int cnt = 0;
@@ -133,11 +135,11 @@ void PatternConvLayer<Dtype>::CyclicPrune() {
             << std::endl;
         delete [] weight_row_bag;
         ActualSparsityCheck();
-      #ifndef CPU_ONLY
-        this->blobs_[0]->gpu_data();
-        this->blobs_[0]->gpu_diff();
-        this->masks_.gpu_data();
-      #endif
+      // #ifndef CPU_ONLY
+      //   this->blobs_[0]->gpu_data();
+      //   this->blobs_[0]->gpu_diff();
+      //   this->masks_.gpu_data();
+      // #endif
       }
     }
   }
@@ -210,8 +212,10 @@ void PatternConvLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
       }
       // mask out the gradients
       int count = this->blobs_[0]->count();
+      const Mtype* mask = this->blobs_[0]->cpu_mask();
       for (int j = 0; j < count; ++j) {
-        weight_diff[j] = this->masks_.cpu_data()[j] == 0 ? 0. : weight_diff[j];
+        // weight_diff[j] = this->masks_.cpu_data()[j] == 0 ? 0. : weight_diff[j];
+        weight_diff[j] = mask[j] == 0 ? 0. : weight_diff[j];
       }
     }
   }

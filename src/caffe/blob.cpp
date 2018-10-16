@@ -64,6 +64,7 @@ Blob<Dtype>::Blob(const int num, const int channels, const int height,
     const int width)
   // capacity_ must be initialized before calling Reshape
   : capacity_(0) {
+    masked_ = false;
   Reshape(num, channels, height, width);
 }
 
@@ -71,6 +72,7 @@ template <typename Dtype>
 Blob<Dtype>::Blob(const vector<int>& shape)
   // capacity_ must be initialized before calling Reshape
   : capacity_(0) {
+    masked_ = false;
   Reshape(shape);
 }
 
@@ -553,9 +555,44 @@ void Blob<float>::ToProto(BlobProto* proto, bool write_diff) const {
   }
 }
 
+template <typename Dtype>
+void Blob<Dtype>::MaskUp() {
+  if (!masked_) {
+    mask_.reset(new SyncedMemory(capacity_ * sizeof(Mtype)));
+    Mtype* mask = (Mtype*)mask_->mutable_cpu_data();
+    for (int i = 0; i < capacity_; ++i) {
+      mask[i] = 1;
+    }
+    masked_ = true;
+  }
+}
+
+template <typename Dtype>
+const Mtype* Blob<Dtype>::cpu_mask() const {
+  CHECK(mask_);
+  return (const Mtype*)mask_->cpu_data();
+}
+
+template <typename Dtype>
+Mtype* Blob<Dtype>::mutable_cpu_mask() {
+  CHECK(mask_);
+  return (Mtype*)mask_->mutable_cpu_data();
+}
+
+template <typename Dtype>
+const Mtype* Blob<Dtype>::gpu_mask() const {
+  CHECK(mask_);
+  return (const Mtype*)mask_->gpu_data();
+}
+
+template <typename Dtype>
+Mtype* Blob<Dtype>::mutable_gpu_mask() {
+  CHECK(mask_);
+  return (Mtype*)mask_->mutable_gpu_data();
+}
+
 INSTANTIATE_CLASS(Blob);
 template class Blob<int>;
 template class Blob<unsigned int>;
 
 }  // namespace caffe
-

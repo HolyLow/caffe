@@ -85,7 +85,7 @@ class PatternConvLayer : public BaseConvolutionLayer<Dtype> {
   void ActualSparsityCheck();
   void CyclicPrune();
 
-  Blob<int> masks_;
+  // Blob<int> masks_;
   int mod_;
   int policy_;
   float begin_sp_;
