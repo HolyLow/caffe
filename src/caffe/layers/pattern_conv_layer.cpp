@@ -17,10 +17,6 @@ void PatternConvLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   policy_ = 0;
   current_sp_ = 0;
   iter_ = 0;
-  // int count = this->blobs_[0]->count();
-  // vector<int> mask_shape(1, count);
-  // this->masks_.Reshape(mask_shape);
-  // caffe_set(count, 1, this->masks_.mutable_cpu_data());
   this->blobs_[0]->MaskUp();
   LOG(INFO) << "mod = " << mod_ << std::endl
             << "policy = " << policy_ << std::endl
@@ -64,6 +60,7 @@ void PatternConvLayer<Dtype>::ActualSparsityCheck() {
 template <typename Dtype>
 void PatternConvLayer<Dtype>::CyclicPrune() {
   if (current_sp_ < end_sp_) {
+    // cyclic along the input channel
     if (policy_ == 0) {
       if (iter_ % iter_pulse_ == 0) {
         ActualSparsityCheck();
@@ -83,64 +80,88 @@ void PatternConvLayer<Dtype>::CyclicPrune() {
         else {
           current_sp_ += 10;
         }
-        LOG(INFO) << "PatternConv Pruning(cyclic), required sparsity from "
+        LOG(INFO) << "PatternConv Pruning(cyclic, input channel), required sparsity from "
                   << last_sp << "% to " << current_sp_ << "%" << std::endl;
         // vector<Dtype> weight_row_bag;
-        int row_num = this->blobs_[0]->count() / this->blobs_[0]->count(1);
-        int row_size = this->blobs_[0]->count(1);
-        Dtype* weight_row_bag = new Dtype[row_size / mod_ + 1];
-        int global_cnt = 0;
-        for (int i = 0; i < row_num; ++i) {
-          Dtype* weight_row = this->blobs_[0]->mutable_cpu_data() + i * row_size;
-          // int* mask_weight_row = this->masks_.mutable_cpu_data() + i * row_size;
-          int* mask_weight_row = this->blobs_[0]->mutable_cpu_mask() + i * row_size;
-          Dtype* weight_diff_row = this->blobs_[0]->mutable_cpu_diff() + i * row_size;
-          for (int j = 0; j < mod_; ++j) {
-            int cnt = 0;
-            for (int col = j; col < row_size; col += mod_, ++cnt) {
-              weight_row_bag[cnt] = fabs(weight_row[col]);
-            }
-            std::sort(weight_row_bag, weight_row_bag + cnt);
-            Dtype threshold = weight_row_bag[(int)(cnt * (float)(current_sp_ / 100))];
-            // set mask_val to 0 to mask it out
-            for (int col = j; col < row_size; col += mod_) {
-              mask_weight_row[col] = (fabs(weight_row[col]) <= threshold) ? 0 : 1;
-              weight_diff_row[col] = (fabs(weight_row[col]) <= threshold) ? 0. : weight_diff_row[col];
-              global_cnt += (fabs(weight_row[col]) <= threshold);
-              weight_row[col] = (fabs(weight_row[col]) <= threshold) ? 0. : weight_row[col];
-            }
-            LOG(INFO) << "row " << i << " mod " << j
-                      << " threshold: " << threshold << std::endl;
-          }
-        }
-        // int count = this->blobs_[0]->count();
-        // Dtype* weight_diff = this->blobs_[0]->mutable_cpu_diff();
-        // for (int j = 0; j < count; ++j) {
-        //   weight_diff[j] = this->masks_.cpu_data()[j] == 0 ? 0. : weight_diff[j];
-        // }
-        float counted_sp = (float)global_cnt / this->blobs_[0]->count() * 100;
-        // int actual_sp_cnt = 0;
+        // int row_num = this->blobs_[0]->count() / this->blobs_[0]->count(1);
+        // int row_size = this->blobs_[0]->count(1);
+        int N = this->blobs_[0]->shape(0);
+        int C = this->blobs_[0]->shape(1);
+        int H = this->blobs_[0]->shape(2);
+        int W = this->blobs_[0]->shape(3);
+        Dtype* weight_mod_bag = new Dtype[N * H * W * (C + mod_ - 1) / mod_];
         // const Dtype* weight = this->blobs_[0]->cpu_data();
-        // for (int i = 0; i < count; ++i) {
-        //   if (weight[i] == 0.) {
-        //     ++actual_sp_cnt;
+        Dtype* weight = this->blobs_[0]->mutable_cpu_data();
+        Mtype* mask = this->blobs_[0]->mutable_cpu_mask();
+        Dtype* diff = this->blobs_[0]->mutable_cpu_diff();
+        int global_cnt = 0;
+        int kernel_size = H * W;
+        for (int i = 0; i < mod_; ++i) {
+          // int begin_offset = this->blobs_[0]->offset(0, i, 0, 0);
+          // int current_offset = begin_offset;
+          int cnt = 0;
+          for (int n = 0; n < N; ++n) {
+            for (int c = i; c < C; c += mod_) {
+              int offset = this->blobs_[0]->offset(n, c, 0, 0);
+              Dtype* weight_kernel = &weight[offset];
+              for (int j = 0; j < kernel_size; ++j, ++cnt) {
+                weight_mod_bag[cnt] = fabs(weight_kernel[j]);
+              }
+            }
+          }
+          std::sort(weight_mod_bag, weight_mod_bag + cnt);
+          Dtype threshold = weight_mod_bag[(int)(cnt * (float)(current_sp_ / 100))];
+          for (int n = 0; n < N; ++n) {
+            for (int c = i; c < C; c += mod_) {
+              int offset = this->blobs_[0]->offset(n, c, 0, 0);
+              Dtype* weight_kernel = &weight[offset];
+              Mtype* mask_kernel = &mask[offset];
+              Dtype* diff_kernel = &diff[offset];
+              for (int j = 0; j < kernel_size; ++j) {
+                mask_kernel[j] = (fabs(weight_kernel[j]) <= threshold) ? 0 : 1;
+                diff_kernel[j] = (fabs(weight_kernel[j]) <= threshold) ? 0. : diff_kernel[j];
+                global_cnt += (fabs(weight_kernel[j]) <= threshold);
+                weight_kernel[j] = (fabs(weight_kernel[j]) <= threshold) ? 0. : weight_kernel[j];
+              }
+            }
+          }
+          LOG(INFO) << "mod " << i
+                    << " threshold: " << threshold << std::endl;
+        }
+
+        // for (int i = 0; i < row_num; ++i) {
+        //   Dtype* weight_row = this->blobs_[0]->mutable_cpu_data() + i * row_size;
+        //   int* mask_weight_row = this->blobs_[0]->mutable_cpu_mask() + i * row_size;
+        //   Dtype* weight_diff_row = this->blobs_[0]->mutable_cpu_diff() + i * row_size;
+        //   for (int j = 0; j < mod_; ++j) {
+        //     int cnt = 0;
+        //     for (int col = j; col < row_size; col += mod_, ++cnt) {
+        //       weight_row_bag[cnt] = fabs(weight_row[col]);
+        //     }
+        //     std::sort(weight_row_bag, weight_row_bag + cnt);
+        //     Dtype threshold = weight_row_bag[(int)(cnt * (float)(current_sp_ / 100))];
+        //     // set mask_val to 0 to mask it out
+        //     for (int col = j; col < row_size; col += mod_) {
+        //       mask_weight_row[col] = (fabs(weight_row[col]) <= threshold) ? 0 : 1;
+        //       weight_diff_row[col] = (fabs(weight_row[col]) <= threshold) ? 0. : weight_diff_row[col];
+        //       global_cnt += (fabs(weight_row[col]) <= threshold);
+        //       weight_row[col] = (fabs(weight_row[col]) <= threshold) ? 0. : weight_row[col];
+        //     }
+        //     LOG(INFO) << "row " << i << " mod " << j
+        //               << " threshold: " << threshold << std::endl;
         //   }
         // }
-        // float actual_sp = (float)actual_sp_cnt / this->blobs_[0]->count() * 100;
+        float counted_sp = (float)global_cnt / this->blobs_[0]->count() * 100;
         LOG(INFO) << "required sparsity: " << current_sp_
             << "%, counted sparsity: " << global_cnt << " / "
             << this->blobs_[0]->count() << " = " << counted_sp
-            // << "%, actual sparsity: " << actual_sp_cnt << " / "
-            // << this->blobs_[0]->count() << " = " << actual_sp << "%"
             << std::endl;
-        delete [] weight_row_bag;
+        delete [] weight_mod_bag;
         ActualSparsityCheck();
-      // #ifndef CPU_ONLY
-      //   this->blobs_[0]->gpu_data();
-      //   this->blobs_[0]->gpu_diff();
-      //   this->masks_.gpu_data();
-      // #endif
       }
+    }
+    else if (policy_ == 1) {
+
     }
   }
 }

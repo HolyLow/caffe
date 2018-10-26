@@ -4,14 +4,6 @@
 
 namespace caffe {
 
-// template <typename Dtype>
-// __global__ void mask_weight(int n, const Dtype* weight,
-//                             const int* mask, Dtype* out) {
-//
-//   CUDA_KERNEL_LOOP(index, n) {
-//     out[index] = weight[index] * mask[index];
-//   }
-// }
 
 template <typename Dtype>
 void PatternConvLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
@@ -62,17 +54,8 @@ void PatternConvLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
       }
       // mask out the gradients
       int count = this->blobs_[0]->count();
-      // mask_weight<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>
-      // (count, this->blobs_[0]->gpu_diff(), this->masks_.gpu_data(),
-      // this->blobs_[0]->mutable_gpu_diff());
-      // mask_weight<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>
-      // (count, this->blobs_[0]->gpu_diff(), this->blobs_[0]->gpu_mask(),
-      // this->blobs_[0]->mutable_gpu_diff());
       caffe_gpu_mask(count, this->blobs_[0]->gpu_mask(),
           this->blobs_[0]->mutable_gpu_diff());
-      // mask_weight<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>(
-      //   count, this->blobs_[0]->gpu_data(), this->masks_.gpu_data(),
-      //   this->blobs_[0]->mutable_gpu_data());
     }
   }
   this->CyclicPrune();
